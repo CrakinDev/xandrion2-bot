@@ -3,7 +3,7 @@ const fs = require('fs')
 
 const Discord = require('discord.js')
 const config = require('./config.json')
-const command = require('./command')
+
 const roleClaim = require('./role-claim')
 
 const client = new Discord.Client()
