@@ -1,4 +1,11 @@
 {
     "token" : "MzIyMTIxNTgxMDQ2MjY3OTA2.WThtGQ.rTEmFECbSvDI8E2zYxvqcCA2dWw",
-    "prefix" : "!"
+    "devToken" : "MzIyODUzMDA5ODc5MjAzODQx.WTsWSw.8sNsDxaVCNKuRnyMwmBAGeC7rfw", 
+    "prefix" : "!",
+    "mongoPath" : "mongodb+srv://xandrion:N00224424n@cluster0.arvr0.mongodb.net/xandrion?retryWrites=true&w=majority",
+    "bKey" : "8255e13183d445719622671d67ad153d",
+    "bClientId" : "13428",
+    "bClientSecret" : "c5SecOfRcNz4Kvf-10xblOvLNVLd57ZudGCePzDqvNs",
+    "bungieKey2" : "de19d4ff51414998b124d162ff920583",
+    "bungieClientId" : ""
 }

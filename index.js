@@ -3,11 +3,14 @@ const fs = require('fs')
 
 const Discord = require('discord.js')
 const config = require('./config.json')
+const mongo = require('./mongo')
 
-const roleClaim = require('./role-claim')
+const BungieLib = require( 'bungie-net-api' );
+
+const roleClaim = require('./harbinger-role-claim')
 
 const client = new Discord.Client()
-client.on('ready', () => {
+client.on('ready', async () => {
     console.log('The client is ready!')
 
     const baseFile = 'command-base.js'
@@ -33,7 +36,11 @@ client.on('ready', () => {
 
     readCommands('commands')
 
-    roleClaim(client)
+    // const Api = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
+    // Api.Destiny2.searchPlayer( "Crakin", "1" ).then(data => {
+    //     console.log(data)
+    // })
+    //roleClaim(client)
 })
 
 client.login(config.token)

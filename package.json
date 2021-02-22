@@ -10,6 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "discord.js": "^12.5.1"
+    "bungie-net-api": "^1.0.6",
+    "discord.js": "^12.5.1",
+    "mongoose": "^5.11.15"
   }
 }
