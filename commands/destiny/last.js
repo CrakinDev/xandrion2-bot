@@ -7,6 +7,7 @@ const discordGuardianSchema = require("../../schemas/discord-guardian-schema");
 const guardianActivitySchema = require('../../schemas/guardian-activity-schema');
 
 const cache = {} // { memberId: [bungieAcctNum, [charId1, charId2, charId3]] }
+const msgDuration = 10
 
 module.exports = {
     commands: ['last'],
@@ -80,10 +81,12 @@ module.exports = {
         {
             activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.ALLDOUBLES
         }
-        else if(activ == 'showdown')
-        {
-            activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN
-        }
+        
+        // SHOWDOWN data has been purged from API
+        // else if(activ == 'showdown')
+        // {
+        //     activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN
+        // }
         else if(activ == 'lockdown' || activ == 'ld')
         {
             activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.LOCKDOWN
@@ -96,7 +99,15 @@ module.exports = {
         {
             activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION
         }
-        else activityMode = activ       // TEMP!!
+        else if(parseInt(activ) > 0 && parseInt(active) < 85)
+        {
+            activityMode = activ       // TEMP!!
+        }
+        else
+        {
+            message.reply(`Activity type incorrect. Please specify a valid activity.`)
+            return
+        }
 
         // Check if account info already exists in current instance cache.
         let cacheData = cache[memberId]     
@@ -122,240 +133,252 @@ module.exports = {
             })
         }
 
-        // Account data is currently cached.
+        // Account data is currently/now cached.
         if(cache[memberId])
         {
-            try
-            {
-                // Configure options for Bungie API query, currently only uses first character id
-                const options = { 'characterId' : cache[memberId].characterIds[0], 'destinyMembershipId' : cache[memberId].bungieAcct, 'membershipType' : 1, 'count' : 10, 'mode' : activityMode, 'page' : 0 }
-                await bungieApi.Destiny2.getActivityHistory(options)
-                .then(async (activityData) => {                
-                    // If Bungie Response is valid
-                    if(activityData.ErrorCode === 1)
+            let activityPromises = []
+            let allActivityData = []
+            let error = false
+
+            cache[memberId].characterIds.forEach((charId) => {
+                activityPromises.push(bungieApi.Destiny2.getActivityHistory({ 'characterId' : charId, 'destinyMembershipId' : cache[memberId].bungieAcct, 'membershipType' : 1, 'count' : 10, 'mode' : activityMode, 'page' : 0 }))
+            })
+            await Promise.all(activityPromises).then((actData) => {
+                actData.forEach((data) => {
+                    console.log(data)
+                    if(!data.ErrorCode === 1 || JSON.stringify(data.Response) === "{}")
                     {
-                        await mongo().then(async (mongoose) => {
-                            try
+                        error = true
+                    }
+                    // Combine all data into a single array to be sorted/processed
+                    allActivityData = allActivityData.concat(data.Response.activities)
+                })
+                
+                // Sort data to get the latest 10 activities (10 is current application limit)
+                allActivityData.sort((a, b) => {
+                    const aTime = new Date(a.period)
+                    const bTime = new Date(b.period)
+                    return aTime.getTime() < bTime.getTime()
+                })
+            })
+
+            // Check if any errors existed in data handling while we are between awaits.
+            if(error)
+            {
+                message.delete()
+                message
+                .reply(`Error from Bungie.Net API.`)
+                .then((message) => {
+                    setTimeout(() => {
+                        message.delete()
+                    }, 1000 * msgDuration)
+                })
+                return
+            }
+
+            await mongo().then(async (mongoose) => {
+                try
+                {
+                    // Ensure we are only storing the last 10 activities of a type
+                    // Currently just deletes all 10 stored entries and replaces it with API query result
+                    await guardianActivitySchema.deleteMany(
+                        {
+                            accountId: cache[memberId].bungieAcct,
+                            mode: activityMode
+                        }
+                    )
+                    // Loop through 10 most recent activities fetched
+                    let activitiesArray = []
+                    allActivityData.slice(0, 9).forEach(activity => {
+                        // Add relevant activity data to array of objects
+                        activitiesArray.push(
                             {
-                                // Ensure we are only storing the last 10 activities of a type
-                                // Currently just deletes all 10 stored entries and replaces it with API query result
-                                await guardianActivitySchema.deleteMany(
-                                    {
-                                        accountId: cache[memberId].bungieAcct,
-                                        mode: activityMode
-                                    }
-                                )
-                                
-                                // Loop through activities fetched
-                                let activitiesArray = []
-                                activityData.Response.activities.forEach(activity => {
-                                    // Add relevant activity data to array of objects
-                                    activitiesArray.push(
-                                        {
-                                            accountId: cache[memberId].bungieAcct,
-                                            timestamp: activity.period,
-                                            directorActivityHash: activity.activityDetails.directorActivityHash,
-                                            instanceId: activity.activityDetails.instanceId,
-                                            mode: activity.activityDetails.mode,
-                                            platform: activity.activityDetails.membershipType,
-                                            assists: activity.values.assists.basic.value,
-                                            deaths: activity.values.deaths.basic.value,
-                                            kills: activity.values.kills.basic.value,
-                                            efficiency: activity.values.efficiency.basic.value,
-                                            kdr: activity.values.killsDeathsRatio.basic.value,
-                                            kdar: activity.values.killsDeathsAssists.basic.value,
-                                            score: activity.values.score.basic.value,
-                                            activityDurationSeconds: activity.values.activityDurationSeconds.basic.value
-                                        })
-                                    });
-                                // Insert fetched activity data to database collection
-                                await guardianActivitySchema.insertMany(activitiesArray)
-                                
-                                // Initialize stats object to first activity value of each stat.
-                                let stats = {
-                                    'assists': activitiesArray[0].assists,
-                                    'deaths': activitiesArray[0].deaths,
-                                    'kills': activitiesArray[0].kills,
-                                    'efficiency': activitiesArray[0].efficiency,
-                                    'kdr': activitiesArray[0].kdr,
-                                    'kdar': activitiesArray[0].kdar,
-                                    'score': activitiesArray[0].score,
-                                    'duration': activitiesArray[0].activityDurationSeconds
-                                }
+                                accountId: cache[memberId].bungieAcct,
+                                timestamp: activity.period,
+                                directorActivityHash: activity.activityDetails.directorActivityHash,
+                                instanceId: activity.activityDetails.instanceId,
+                                mode: activity.activityDetails.mode,
+                                platform: activity.activityDetails.membershipType,
+                                assists: activity.values.assists.basic.value,
+                                deaths: activity.values.deaths.basic.value,
+                                kills: activity.values.kills.basic.value,
+                                efficiency: activity.values.efficiency.basic.value,
+                                kdr: activity.values.killsDeathsRatio.basic.value,
+                                kdar: activity.values.killsDeathsAssists.basic.value,
+                                score: activity.values.score.basic.value,
+                                activityDurationSeconds: activity.values.activityDurationSeconds.basic.value
+                            })
+                        });
+                    // Insert fetched activity data to database collection
+                    await guardianActivitySchema.insertMany(activitiesArray)
+                    
+                    // Initialize stats object to first activity value of each stat.
+                    let stats = {
+                        'assists': activitiesArray[0].assists,
+                        'deaths': activitiesArray[0].deaths,
+                        'kills': activitiesArray[0].kills,
+                        'efficiency': activitiesArray[0].efficiency,
+                        'kdr': activitiesArray[0].kdr,
+                        'kdar': activitiesArray[0].kdar,
+                        'score': activitiesArray[0].score,
+                        'duration': activitiesArray[0].activityDurationSeconds
+                    }
 
-                                // Construct response of averages for activity counts greater than 1
-                                if(actCount > 1)
-                                {
-                                    // Add up stat totals for each activity up to the specified activity count.
-                                    // Each stat already initialzed from first activity, start at the second.
-                                    for(x = 1; x < actCount; x++)
-                                    {
-                                        stats['assists'] += activitiesArray[x].assists
-                                        stats['deaths'] += activitiesArray[x].deaths
-                                        stats['kills'] += activitiesArray[x].kills
-                                        stats['efficiency'] += activitiesArray[x].efficiency
-                                        stats['kdr'] += activitiesArray[x].kdr
-                                        stats['kdar'] += activitiesArray[x].kdar
-                                        stats['score'] += activitiesArray[x].score
-                                        stats['duration'] += activitiesArray[x].activityDurationSeconds
-                                    }
+                    // Construct response of averages for activity counts greater than 1
+                    if(actCount > 1)
+                    {
+                        // Add up stat totals for each activity up to the specified activity count.
+                        // Each stat already initialzed from first activity, start at the second.
+                        for(x = 1; x < actCount; x++)
+                        {
+                            stats['assists'] += activitiesArray[x].assists
+                            stats['deaths'] += activitiesArray[x].deaths
+                            stats['kills'] += activitiesArray[x].kills
+                            stats['efficiency'] += activitiesArray[x].efficiency
+                            stats['kdr'] += activitiesArray[x].kdr
+                            stats['kdar'] += activitiesArray[x].kdar
+                            stats['score'] += activitiesArray[x].score
+                            stats['duration'] += activitiesArray[x].activityDurationSeconds
+                        }
 
-                                    // Average out each stat value (divide by activity count specified)
-                                    for(stat in stats)
-                                    {
-                                        stats[stat] /= actCount
-                                    }
-                                }
+                        // Average out each stat value (divide by activity count specified)
+                        for(stat in stats)
+                        {
+                            stats[stat] /= actCount
+                        }
+                    }
 
-                                // Use relevant data to build response
-                                // Each activity has different stats, using a switch case we can present relevant stats in a Discord Embed object.
-                                let embed = null
-                                let activityName = ''
-                                switch(activityMode)
-                                {
-                                    // PVE Activities
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.STRIKE:
-                                        activityName = 'Strike'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.RAID:
-                                        activityName = 'Raid'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVE:
-                                        activityName = 'PvE'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.SCOREDNIGHTFALL:
-                                        activityName = 'Nightfall'
-                                        break
-                                    
-                                    // PVP Activities
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVP:
-                                        activityName = 'Crucible'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.CONTROL:
-                                        activityName = 'Control'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.CLASH:
-                                        activityName = 'Clash'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLMAYHEM:
-                                        activityName = 'Mayhem'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.SUPREMACY:
-                                        activityName = 'Supremacy'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.SURVIVAL:
-                                        activityName = 'Survival'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.COUNTDOWN:
-                                        activityName = 'Countdown'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.RUMBLE:
-                                        activityName = 'Rumble'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLDOUBLES:
-                                        activityName = 'Doubles'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN:
-                                        activityName = 'Showdown'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.LOCKDOWN:
-                                        activityName = 'Lockdown'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.SCORCHED:
-                                        activityName = 'Scorched'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION:
-                                        activityName = 'Elimination'
-                                        break
-                                    
-                                    // Specialty PVP Activities
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.IRONBANNER:
-                                        activityName = 'Iron Banner'
-                                        break
-                                    case bungieApi.Destiny2.Enums.destinyActivityModeType.TRIALSOFOSIRIS:
-                                        activityName = 'Trials of Osiris'
-                                        break
-                                }
+                    // Use relevant data to build response
+                    // Each activity has different stats, using a switch case we can present relevant stats in a Discord Embed object.
+                    let embed = null
+                    let activityName = ''
+                    switch(activityMode)
+                    {
+                        // PVE Activities
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.STRIKE:
+                            activityName = 'Strike'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.RAID:
+                            activityName = 'Raid'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVE:
+                            activityName = 'PvE'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCOREDNIGHTFALL:
+                            activityName = 'Nightfall'
+                            break
+                        
+                        // PVP Activities
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVP:
+                            activityName = 'Crucible'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.CONTROL:
+                            activityName = 'Control'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.CLASH:
+                            activityName = 'Clash'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLMAYHEM:
+                            activityName = 'Mayhem'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SUPREMACY:
+                            activityName = 'Supremacy'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SURVIVAL:
+                            activityName = 'Survival'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.COUNTDOWN:
+                            activityName = 'Countdown'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.RUMBLE:
+                            activityName = 'Rumble'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLDOUBLES:
+                            activityName = 'Doubles'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN:
+                            activityName = 'Showdown'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.LOCKDOWN:
+                            activityName = 'Lockdown'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCORCHED:
+                            activityName = 'Scorched'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION:
+                            activityName = 'Elimination'
+                            break
+                        
+                        // Specialty PVP Activities
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.IRONBANNER:
+                            activityName = 'Iron Banner'
+                            break
+                        case bungieApi.Destiny2.Enums.destinyActivityModeType.TRIALSOFOSIRIS:
+                            activityName = 'Trials of Osiris'
+                            break
+                    }
 
-                                embed = new Discord.MessageEmbed()
-                                    .setTitle(`Stat Averages - Last ${actCount} ${activityName} Activities`)
-                                    .setFooter(`Timestamp: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`)
-                                    .setColor('#00AAFF')
-                                    .addFields(
-                                        {
-                                            name: 'Avg. Kills',
-                                            value: stats['kills'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'Avg. Deaths',
-                                            value: stats['deaths'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'Avg. Assists',
-                                            value: stats['assists'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'K/D Ratio',
-                                            value: stats['kdr'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'K/D/A Ratio',
-                                            value: stats['kdar'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'Avg. Efficiency',
-                                            value: stats['efficiency'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'Avg. Score',
-                                            value: stats['score'].toFixed(2),
-                                            inline: true,
-                                        },
-                                        {
-                                            name: 'Avg. Duration',
-                                            value: `${(stats['duration'] / 60).toFixed(2)}m`,
-                                            inline: true,
-                                        },
-                                    )
-
-                                if(embed)
-                                {
-                                    message.channel.send(embed)
-                                }
-                                else
-                                {
-                                    message.reply(`Failed to aggregate stats. Please try again later.`)
-                                }
-                            }
-                            finally
+                    embed = new Discord.MessageEmbed()
+                        .setTitle(`Stat Averages - Last ${actCount} ${activityName} Activities`)
+                        .setFooter(`Timestamp: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`)
+                        .setColor('#00AAFF')
+                        .addFields(
                             {
-                                mongoose.connection.close()
-                            }
-                        })
+                                name: 'Avg. Kills',
+                                value: stats['kills'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'Avg. Deaths',
+                                value: stats['deaths'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'Avg. Assists',
+                                value: stats['assists'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'K/D Ratio',
+                                value: stats['kdr'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'K/D/A Ratio',
+                                value: stats['kdar'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'Avg. Efficiency',
+                                value: stats['efficiency'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'Avg. Score',
+                                value: stats['score'].toFixed(2),
+                                inline: true,
+                            },
+                            {
+                                name: 'Avg. Duration',
+                                value: `${new Date(stats['duration'] * 1000).toISOString().substr(11, 8)}`,
+                                inline: true,
+                            },
+                        )
+
+                    if(embed)
+                    {
+                        message.channel.send(embed)
                     }
                     else
                     {
-                        message.delete()
-                        message
-                        .reply(`Error from Bungie.Net API: ${activityData.ErrorStatus}`)
-                        .then((message) => {
-                            setTimeout(() => {
-                                message.delete()
-                            }, 1000 * msgDuration)
-                        })
+                        message.reply(`Failed to aggregate stats. Please try again later.`)
                     }
-                })
-            }
-            catch(e)
-            {
-                console.error(e)
-            }
+                }
+                finally
+                {
+                    mongoose.connection.close()
+                }
+            })
         }
         else
         {
