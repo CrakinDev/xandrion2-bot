@@ -2,7 +2,8 @@ const path = require('path')
 const fs = require('fs')
 
 const Discord = require('discord.js')
-const config = require('./config.json')
+//const config = require('./config.json')
+require('dotenv').config()
 const mongo = require('./mongo')
 
 const BungieLib = require( 'bungie-net-api' );
@@ -38,5 +39,5 @@ client.on('ready', async () => {
 
     //roleClaim(client)
 })
-
-client.login(config.token)
+console.log(process.env.DJS_TOKEN)
+client.login(process.env.DJS_TOKEN)

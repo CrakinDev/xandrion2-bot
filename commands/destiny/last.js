@@ -1,4 +1,5 @@
-const config = require('../../config.json')
+//const config = require('../../config.json')
+const prefix = process.env.PREFIX
 const Discord = require('discord.js')
 const BungieLib = require( 'bungie-net-api' );
 
@@ -8,7 +9,7 @@ const guardianActivitySchema = require('../../schemas/guardian-activity-schema')
 
 const cache = {} // { memberId: [bungieAcctNum, [charId1, charId2, charId3]] }
 const msgDuration = 10
-const bungieApi = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
+const bungieApi = new BungieLib({"key" : process.env.BUNGIE_KEY, "clientId" : process.env.BUNGIE_CLIENT_ID, "clientSecret" : process.env.BUNGIE_CLIENT_SECRET})
 
 module.exports = {
     commands: ['last'],
@@ -24,7 +25,7 @@ module.exports = {
 
         if(actCount < 1 || actCount > 10)
         {
-            message.reply(`Activity count incorrect. Please specify an activity count between 1 and 10 (Ex. ${config.prefix}last 3 trials).`)
+            message.reply(`Activity count incorrect. Please specify an activity count between 1 and 10 (Ex. ${prefix}last 3 trials).`)
             return
         }
 
@@ -127,7 +128,7 @@ module.exports = {
                     // If account data is still not found, user is not registered.
                     if(!cache[memberId])
                     {
-                        message.reply(`Failed to find your registered Guardian data. Please use the ${config.prefix}registerme command to register first.`)
+                        message.reply(`Failed to find your registered Guardian data. Please use the ${prefix}registerme command to register first.`)
                     }
                 }
                 finally
@@ -342,7 +343,7 @@ module.exports = {
         // Guardian data (account IDs from Bungie.net) is not in cache or database. User needs to use the registerme command first.
         else
         {
-            message.reply(`Failed to find your registered Guardian data. Please use the ${config.prefix}registerme command to register first.`)
+            message.reply(`Failed to find your registered Guardian data. Please use the ${prefix}registerme command to register first.`)
         }
     },
 }

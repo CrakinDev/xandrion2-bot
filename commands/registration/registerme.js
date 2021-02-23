@@ -1,4 +1,4 @@
-const config = require('../../config.json')
+//const config = require('../../config.json')
 const BungieLib = require( 'bungie-net-api' );
 
 const mongo = require('../../mongo')
@@ -19,7 +19,7 @@ module.exports = {
         let username = arguments[0]
         let platform = arguments[1]
 
-        const bungieApi = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
+        const bungieApi = new BungieLib({"key" : process.env.BUNGIE_KEY, "clientId" : process.env.BUNGIE_CLIENT_ID, "clientSecret" : process.env.BUNGIE_CLIENT_SECRET})
 
         // Check if data already exists in current instance cache.
         let cacheData = cache[memberId]     // { memberId: [username, platform, bungieAcct] }
