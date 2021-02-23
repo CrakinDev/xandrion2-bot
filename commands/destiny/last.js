@@ -174,6 +174,10 @@ module.exports = {
                     console.log(e)
                 }                
             })
+            .catch(e)
+            {
+                console.log(e)
+            }
 
             // Check if any errors existed in data handling while we are between awaits.
             if(error)
