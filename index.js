@@ -39,5 +39,4 @@ client.on('ready', async () => {
 
     //roleClaim(client)
 })
-console.log(process.env.DJS_TOKEN)
 client.login(process.env.DJS_TOKEN)
