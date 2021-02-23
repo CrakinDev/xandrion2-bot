@@ -36,10 +36,6 @@ client.on('ready', async () => {
 
     readCommands('commands')
 
-    // const Api = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
-    // Api.Destiny2.searchPlayer( "Crakin", "1" ).then(data => {
-    //     console.log(data)
-    // })
     //roleClaim(client)
 })
 

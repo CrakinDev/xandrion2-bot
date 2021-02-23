@@ -8,6 +8,7 @@ const guardianActivitySchema = require('../../schemas/guardian-activity-schema')
 
 const cache = {} // { memberId: [bungieAcctNum, [charId1, charId2, charId3]] }
 const msgDuration = 10
+const bungieApi = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
 
 module.exports = {
     commands: ['last'],
@@ -20,7 +21,6 @@ module.exports = {
         const actCount = arguments[0]
         const activ = arguments[1].toLowerCase()
         let activityMode = ''
-        const bungieApi = new BungieLib({"key" : config.bKey, "clientId" : config.bClientId, "clientSecret" : config.bClientSecret})
 
         if(actCount < 1 || actCount > 10)
         {
@@ -99,6 +99,10 @@ module.exports = {
         {
             activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION
         }
+        else if(activ == 'trials' || activ == 'too')
+        {
+            activityMode = bungieApi.Destiny2.Enums.destinyActivityModeType.TRIALSOFOSIRIS
+        }
         else if(parseInt(activ) > 0 && parseInt(active) < 85)
         {
             activityMode = activ       // TEMP!!
@@ -139,16 +143,17 @@ module.exports = {
             let activityPromises = []
             let allActivityData = []
             let error = false
+            let errorReason = ''
 
             cache[memberId].characterIds.forEach((charId) => {
                 activityPromises.push(bungieApi.Destiny2.getActivityHistory({ 'characterId' : charId, 'destinyMembershipId' : cache[memberId].bungieAcct, 'membershipType' : 1, 'count' : 10, 'mode' : activityMode, 'page' : 0 }))
             })
             await Promise.all(activityPromises).then((actData) => {
                 actData.forEach((data) => {
-                    console.log(data)
                     if(!data.ErrorCode === 1 || JSON.stringify(data.Response) === "{}")
                     {
                         error = true
+                        errorReason = (data.ErrorCode !== 1) ? data.ErrorStatus : 'No ' + getActivityType(activityMode) + ' data available.'
                     }
                     // Combine all data into a single array to be sorted/processed
                     allActivityData = allActivityData.concat(data.Response.activities)
@@ -167,7 +172,7 @@ module.exports = {
             {
                 message.delete()
                 message
-                .reply(`Error from Bungie.Net API.`)
+                .reply(`Error from Bungie.Net API. ${errorReason}`)
                 .then((message) => {
                     setTimeout(() => {
                         message.delete()
@@ -187,9 +192,20 @@ module.exports = {
                             mode: activityMode
                         }
                     )
-                    // Loop through 10 most recent activities fetched
+                    // Loop through 10 most recent activities fetched, if available.
+                    // If a player has not played 10 activities of the type requested, parse as many as we can.
                     let activitiesArray = []
-                    allActivityData.slice(0, 9).forEach(activity => {
+                    let activityLength = allActivityData.length
+                    if(activityLength >= 10)
+                    {
+                        activityLength = 10
+                    }
+                    else
+                    {
+                        actCount = activityLength
+                    }
+
+                    allActivityData.slice(0, activityLength - 1).forEach(activity => {
                         // Add relevant activity data to array of objects
                         activitiesArray.push(
                             {
@@ -208,7 +224,9 @@ module.exports = {
                                 score: activity.values.score.basic.value,
                                 activityDurationSeconds: activity.values.activityDurationSeconds.basic.value
                             })
-                        });
+                        }
+                    )
+                    
                     // Insert fetched activity data to database collection
                     await guardianActivitySchema.insertMany(activitiesArray)
                     
@@ -231,14 +249,17 @@ module.exports = {
                         // Each stat already initialzed from first activity, start at the second.
                         for(x = 1; x < actCount; x++)
                         {
-                            stats['assists'] += activitiesArray[x].assists
-                            stats['deaths'] += activitiesArray[x].deaths
-                            stats['kills'] += activitiesArray[x].kills
-                            stats['efficiency'] += activitiesArray[x].efficiency
-                            stats['kdr'] += activitiesArray[x].kdr
-                            stats['kdar'] += activitiesArray[x].kdar
-                            stats['score'] += activitiesArray[x].score
-                            stats['duration'] += activitiesArray[x].activityDurationSeconds
+                            if(activitiesArray[x])
+                            {
+                                stats['assists'] += activitiesArray[x].assists
+                                stats['deaths'] += activitiesArray[x].deaths
+                                stats['kills'] += activitiesArray[x].kills
+                                stats['efficiency'] += activitiesArray[x].efficiency
+                                stats['kdr'] += activitiesArray[x].kdr
+                                stats['kdar'] += activitiesArray[x].kdar
+                                stats['score'] += activitiesArray[x].score
+                                stats['duration'] += activitiesArray[x].activityDurationSeconds
+                            }
                         }
 
                         // Average out each stat value (divide by activity count specified)
@@ -251,73 +272,9 @@ module.exports = {
                     // Use relevant data to build response
                     // Each activity has different stats, using a switch case we can present relevant stats in a Discord Embed object.
                     let embed = null
-                    let activityName = ''
-                    switch(activityMode)
-                    {
-                        // PVE Activities
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.STRIKE:
-                            activityName = 'Strike'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.RAID:
-                            activityName = 'Raid'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVE:
-                            activityName = 'PvE'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCOREDNIGHTFALL:
-                            activityName = 'Nightfall'
-                            break
-                        
-                        // PVP Activities
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVP:
-                            activityName = 'Crucible'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.CONTROL:
-                            activityName = 'Control'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.CLASH:
-                            activityName = 'Clash'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLMAYHEM:
-                            activityName = 'Mayhem'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SUPREMACY:
-                            activityName = 'Supremacy'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SURVIVAL:
-                            activityName = 'Survival'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.COUNTDOWN:
-                            activityName = 'Countdown'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.RUMBLE:
-                            activityName = 'Rumble'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLDOUBLES:
-                            activityName = 'Doubles'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN:
-                            activityName = 'Showdown'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.LOCKDOWN:
-                            activityName = 'Lockdown'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCORCHED:
-                            activityName = 'Scorched'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION:
-                            activityName = 'Elimination'
-                            break
-                        
-                        // Specialty PVP Activities
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.IRONBANNER:
-                            activityName = 'Iron Banner'
-                            break
-                        case bungieApi.Destiny2.Enums.destinyActivityModeType.TRIALSOFOSIRIS:
-                            activityName = 'Trials of Osiris'
-                            break
-                    }
+                    let activityName = getActivityType(activityMode)
 
+                    // Construct Discord Embed message response based on parsed data.
                     embed = new Discord.MessageEmbed()
                         .setTitle(`Stat Averages - Last ${actCount} ${activityName} Activities`)
                         .setFooter(`Timestamp: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`)
@@ -365,10 +322,12 @@ module.exports = {
                             },
                         )
 
+                    // If embed was successfully constructed, send to channel.
                     if(embed)
                     {
                         message.channel.send(embed)
                     }
+                    // If not, return error.
                     else
                     {
                         message.reply(`Failed to aggregate stats. Please try again later.`)
@@ -380,9 +339,81 @@ module.exports = {
                 }
             })
         }
+        // Guardian data (account IDs from Bungie.net) is not in cache or database. User needs to use the registerme command first.
         else
         {
             message.reply(`Failed to find your registered Guardian data. Please use the ${config.prefix}registerme command to register first.`)
         }
     },
+}
+
+getActivityType = (activityMode) => {
+    let activityName = ''
+    
+    switch(activityMode)
+    {
+        // PVE Activities
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.STRIKE:
+            activityName = 'Strike'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.RAID:
+            activityName = 'Raid'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVE:
+            activityName = 'PvE'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCOREDNIGHTFALL:
+            activityName = 'Nightfall'
+            break
+        
+        // PVP Activities
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLPVP:
+            activityName = 'Crucible'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.CONTROL:
+            activityName = 'Control'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.CLASH:
+            activityName = 'Clash'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLMAYHEM:
+            activityName = 'Mayhem'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.SUPREMACY:
+            activityName = 'Supremacy'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.SURVIVAL:
+            activityName = 'Survival'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.COUNTDOWN:
+            activityName = 'Countdown'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.RUMBLE:
+            activityName = 'Rumble'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.ALLDOUBLES:
+            activityName = 'Doubles'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.SHOWDOWN:
+            activityName = 'Showdown'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.LOCKDOWN:
+            activityName = 'Lockdown'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.SCORCHED:
+            activityName = 'Scorched'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.ELIMINATION:
+            activityName = 'Elimination'
+            break
+        
+        // Specialty PVP Activities
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.IRONBANNER:
+            activityName = 'Iron Banner'
+            break
+        case bungieApi.Destiny2.Enums.destinyActivityModeType.TRIALSOFOSIRIS:
+            activityName = 'Trials of Osiris'
+            break
+    }
+    return activityName
 }
