@@ -150,22 +150,29 @@ module.exports = {
                 activityPromises.push(bungieApi.Destiny2.getActivityHistory({ 'characterId' : charId, 'destinyMembershipId' : cache[memberId].bungieAcct, 'membershipType' : 1, 'count' : 10, 'mode' : activityMode, 'page' : 0 }))
             })
             await Promise.all(activityPromises).then((actData) => {
-                actData.forEach((data) => {
-                    if(!data.ErrorCode === 1 || JSON.stringify(data.Response) === "{}")
-                    {
-                        error = true
-                        errorReason = (data.ErrorCode !== 1) ? data.ErrorStatus : 'No ' + getActivityType(activityMode) + ' data available.'
-                    }
-                    // Combine all data into a single array to be sorted/processed
-                    allActivityData = allActivityData.concat(data.Response.activities)
-                })
-                
-                // Sort data to get the latest 10 activities (10 is current application limit)
-                allActivityData.sort((a, b) => {
-                    const aTime = new Date(a.period)
-                    const bTime = new Date(b.period)
-                    return aTime.getTime() < bTime.getTime()
-                })
+                try
+                {
+                    actData.forEach((data) => {
+                        if(!data.ErrorCode === 1 || JSON.stringify(data.Response) === "{}")
+                        {
+                            error = true
+                            errorReason = (data.ErrorCode !== 1) ? data.ErrorStatus : 'No ' + getActivityType(activityMode) + ' data available.'
+                        }
+                        // Combine all data into a single array to be sorted/processed
+                        allActivityData = allActivityData.concat(data.Response.activities)
+                    })
+                    
+                    // Sort data to get the latest 10 activities (10 is current application limit)
+                    allActivityData.sort((a, b) => {
+                        const aTime = new Date(a.period)
+                        const bTime = new Date(b.period)
+                        return aTime.getTime() < bTime.getTime()
+                    })
+                }
+                catch(e)
+                {
+                    console.log(e)
+                }                
             })
 
             // Check if any errors existed in data handling while we are between awaits.
