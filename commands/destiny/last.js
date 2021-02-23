@@ -174,6 +174,7 @@ module.exports = {
                     console.log(e)
                 }                
             })
+            // Catch any issues with API connectivity here.
             .catch(err => {
                 console.log(err)
             })
