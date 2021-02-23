@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "bungie-net-api": "^1.0.6",
+    "bungie-net-api": "https://github.com/CrakinDev/node-bungie-api.git",
     "discord.js": "^12.5.1",
     "dotenv": "^8.2.0",
     "mongoose": "^5.11.15"
