@@ -3,11 +3,11 @@ module.exports = {
     permissionError: 'You need permissions to run this command',
     minArgs: 0,
     maxArgs: 0,
-    callback: (client, message, arguments, text) => {
+    callback: async (client, message, arguments, text) => {
         const { guild, member } = message
         const roleAdd = guild.roles.cache.find(role => role.name === 'Xantester')
-        let chan = guild.channels.cache.get('811829956908286002')          // Main Server
-        if(!chan) chan = guild.channels.cache.get('322122208837369856')    // Dev Server
+        let chan = await client.channels.fetch('811829956908286002')          // Main Server
+        if(!chan) chan = await client.channels.fetch('322122208837369856')    // Dev Server
         if(!chan) return
 
         member.roles.add(roleAdd)
