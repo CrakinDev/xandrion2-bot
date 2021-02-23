@@ -174,10 +174,9 @@ module.exports = {
                     console.log(e)
                 }                
             })
-            .catch(e)
-            {
-                console.log(e)
-            }
+            .catch(err => {
+                console.log(err)
+            })
 
             // Check if any errors existed in data handling while we are between awaits.
             if(error)
