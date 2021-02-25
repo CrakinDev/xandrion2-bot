@@ -25,6 +25,7 @@ module.exports = {
         let cacheData = cache[memberId]     // { memberId: [username, platform, bungieAcct] }
         if(!cacheData)
         {
+            // Translate platform from command arugement
             if(arguments[1] === "1" || arguments[1].toLowerCase() === 'xbox' || arguments[0].toLowerCase() === 'xbl')
             {
                 platform = bungieApi.Destiny2.Enums.bungieMembershipType.TIGERXBOX
