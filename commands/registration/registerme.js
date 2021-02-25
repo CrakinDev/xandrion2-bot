@@ -62,10 +62,10 @@ module.exports = {
                                 {
                                     await discordGuardianSchema.findOneAndUpdate(
                                         {
-                                            _id: memberId
+                                            discordId: memberId
                                         },
                                         {
-                                            _id: memberId,
+                                            discordId: memberId,
                                             platform: cacheData[1],
                                             name: cacheData[0],
                                             bungieAcct: cacheData[2],

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose')
 
 const discordGuardianSchema = mongoose.Schema({
-    _id: {
+    discordId: {
         type: String,
         required: true
     },
@@ -20,7 +20,19 @@ const discordGuardianSchema = mongoose.Schema({
     characterIds: {
         type: Array,
         required: false
+    },
+    discordTag: {
+        type: String,
+        required: false
+    },
+    avatar: {
+        type: String,
+        required: false
+    },
+    guilds: {
+        type: Array,
+        required: false
     }
 })
 
-module.exports = mongoose.model('discord-guardians', discordGuardianSchema)
+module.exports = mongoose.model('discord-users', discordGuardianSchema)

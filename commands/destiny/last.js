@@ -122,7 +122,7 @@ module.exports = {
             await mongo().then(async (mongoose) => {
                 try
                 {
-                    fetchedAccountData = await discordGuardianSchema.findOne({ _id: memberId })
+                    fetchedAccountData = await discordGuardianSchema.findOne({ discordId: memberId })
                     cache[memberId] = fetchedAccountData
 
                     // If account data is still not found, user is not registered.
