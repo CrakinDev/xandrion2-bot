@@ -1,11 +1,12 @@
 //const config = require('../../config.json')
 const prefix = process.env.PREFIX
 const Discord = require('discord.js')
-const BungieLib = require( 'bungie-net-api' );
+const BungieLib = require( 'bungie-net-api' )
+const fetch = require('node-fetch')
 
 const mongo = require('../../mongo')
-const discordGuardianSchema = require("../../schemas/discord-guardian-schema");
-const guardianActivitySchema = require('../../schemas/guardian-activity-schema');
+const discordGuardianSchema = require("../../schemas/discord-guardian-schema")
+const guardianActivitySchema = require('../../schemas/guardian-activity-schema')
 
 const cache = {} // { memberId: [bungieAcctNum, [charId1, charId2, charId3]] }
 const msgDuration = 10
@@ -19,7 +20,7 @@ module.exports = {
     maxArgs: 2,
     callback: async (client, message, arguments, text) => {
         const memberId = message.member.id
-        const actCount = arguments[0]
+        let actCount = arguments[0]
         const activ = arguments[1].toLowerCase()
         let activityMode = ''
 
@@ -141,215 +142,125 @@ module.exports = {
         // Account data is currently/now cached.
         if(cache[memberId])
         {
-            let activityPromises = []
             let allActivityData = []
             let error = false
             let errorReason = ''
+            let activitiesArray = []
 
-            cache[memberId].characterIds.forEach((charId) => {
-                activityPromises.push(bungieApi.Destiny2.getActivityHistory({ 'characterId' : charId, 'destinyMembershipId' : cache[memberId].bungieAcct, 'membershipType' : 1, 'count' : 10, 'mode' : activityMode, 'page' : 0 }))
-            })
-            await Promise.all(activityPromises).then((actData) => {
-                try
-                {
-                    actData.forEach((data) => {
-                        if(!data.ErrorCode === 1 || JSON.stringify(data.Response) === "{}")
-                        {
-                            error = true
-                            errorReason = (data.ErrorCode !== 1) ? data.ErrorStatus : 'No ' + getActivityType(activityMode) + ' data available.'
-                        }
-                        // Combine all data into a single array to be sorted/processed
-                        allActivityData = allActivityData.concat(data.Response.activities)
-                    })
-                    
-                    // Sort data to get the latest 10 activities (10 is current application limit)
-                    allActivityData.sort((a, b) => {
-                        const aTime = new Date(a.period)
-                        const bTime = new Date(b.period)
-                        return aTime.getTime() < bTime.getTime()
-                    })
-                }
-                catch(e)
-                {
-                    console.log(e)
-                }                
-            })
-            // Catch any issues with API connectivity here.
-            .catch(err => {
-                console.log(err)
-            })
-
-            // Check if any errors existed in data handling while we are between awaits.
-            if(error)
+            await fetch(process.env.XANDRION_API + 'api/stats/activities/' + cache[memberId].bungieAcct + '/' + activityMode)
+                .then(res => res.json())
+                .then(json => activitiesArray = json)
+            
+            if(activitiesArray.length < actCount)
             {
-                message.delete()
-                message
-                .reply(`Error from Bungie.Net API. ${errorReason}`)
-                .then((message) => {
-                    setTimeout(() => {
-                        message.delete()
-                    }, 1000 * msgDuration)
-                })
-                return
+                actCount = activitiesArray.length
+            }
+            
+            // Insert fetched activity data to database collection
+            // await guardianActivitySchema.insertMany(activitiesArray)
+            
+            // Initialize stats object to first activity value of each stat.
+            let stats = {
+                'assists': activitiesArray[0].assists,
+                'deaths': activitiesArray[0].deaths,
+                'kills': activitiesArray[0].kills,
+                'efficiency': activitiesArray[0].efficiency,
+                'kdr': activitiesArray[0].kdr,
+                'kdar': activitiesArray[0].kdar,
+                'score': activitiesArray[0].score,
+                'duration': activitiesArray[0].activityDurationSeconds
             }
 
-            await mongo().then(async (mongoose) => {
-                try
+            // Construct response of averages for activity counts greater than 1
+            if(actCount > 1)
+            {
+                // Add up stat totals for each activity up to the specified activity count.
+                // Each stat already initialzed from first activity, start at the second.
+                for(x = 1; x < actCount; x++)
                 {
-                    // Ensure we are only storing the last 10 activities of a type
-                    // Currently just deletes all 10 stored entries and replaces it with API query result
-                    await guardianActivitySchema.deleteMany(
-                        {
-                            accountId: cache[memberId].bungieAcct,
-                            mode: activityMode
-                        }
-                    )
-                    // Loop through 10 most recent activities fetched, if available.
-                    // If a player has not played 10 activities of the type requested, parse as many as we can.
-                    let activitiesArray = []
-                    let activityLength = allActivityData.length
-                    if(activityLength >= 10)
+                    if(activitiesArray[x])
                     {
-                        activityLength = 10
-                    }
-                    else
-                    {
-                        actCount = activityLength
-                    }
-
-                    allActivityData.slice(0, activityLength - 1).forEach(activity => {
-                        // Add relevant activity data to array of objects
-                        activitiesArray.push(
-                            {
-                                accountId: cache[memberId].bungieAcct,
-                                timestamp: activity.period,
-                                directorActivityHash: activity.activityDetails.directorActivityHash,
-                                instanceId: activity.activityDetails.instanceId,
-                                mode: activity.activityDetails.mode,
-                                platform: activity.activityDetails.membershipType,
-                                assists: activity.values.assists.basic.value,
-                                deaths: activity.values.deaths.basic.value,
-                                kills: activity.values.kills.basic.value,
-                                efficiency: activity.values.efficiency.basic.value,
-                                kdr: activity.values.killsDeathsRatio.basic.value,
-                                kdar: activity.values.killsDeathsAssists.basic.value,
-                                score: activity.values.score.basic.value,
-                                activityDurationSeconds: activity.values.activityDurationSeconds.basic.value
-                            })
-                        }
-                    )
-                    
-                    // Insert fetched activity data to database collection
-                    await guardianActivitySchema.insertMany(activitiesArray)
-                    
-                    // Initialize stats object to first activity value of each stat.
-                    let stats = {
-                        'assists': activitiesArray[0].assists,
-                        'deaths': activitiesArray[0].deaths,
-                        'kills': activitiesArray[0].kills,
-                        'efficiency': activitiesArray[0].efficiency,
-                        'kdr': activitiesArray[0].kdr,
-                        'kdar': activitiesArray[0].kdar,
-                        'score': activitiesArray[0].score,
-                        'duration': activitiesArray[0].activityDurationSeconds
-                    }
-
-                    // Construct response of averages for activity counts greater than 1
-                    if(actCount > 1)
-                    {
-                        // Add up stat totals for each activity up to the specified activity count.
-                        // Each stat already initialzed from first activity, start at the second.
-                        for(x = 1; x < actCount; x++)
-                        {
-                            if(activitiesArray[x])
-                            {
-                                stats['assists'] += activitiesArray[x].assists
-                                stats['deaths'] += activitiesArray[x].deaths
-                                stats['kills'] += activitiesArray[x].kills
-                                stats['efficiency'] += activitiesArray[x].efficiency
-                                stats['kdr'] += activitiesArray[x].kdr
-                                stats['kdar'] += activitiesArray[x].kdar
-                                stats['score'] += activitiesArray[x].score
-                                stats['duration'] += activitiesArray[x].activityDurationSeconds
-                            }
-                        }
-
-                        // Average out each stat value (divide by activity count specified)
-                        for(stat in stats)
-                        {
-                            stats[stat] /= actCount
-                        }
-                    }
-
-                    // Use relevant data to build response
-                    // Each activity has different stats, using a switch case we can present relevant stats in a Discord Embed object.
-                    let embed = null
-                    let activityName = getActivityType(activityMode)
-
-                    // Construct Discord Embed message response based on parsed data.
-                    embed = new Discord.MessageEmbed()
-                        .setTitle(`Stat Averages - Last ${actCount} ${activityName} Activities`)
-                        .setFooter(`Timestamp: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`)
-                        .setColor('#00AAFF')
-                        .addFields(
-                            {
-                                name: 'Avg. Kills',
-                                value: stats['kills'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'Avg. Deaths',
-                                value: stats['deaths'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'Avg. Assists',
-                                value: stats['assists'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'K/D Ratio',
-                                value: stats['kdr'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'K/D/A Ratio',
-                                value: stats['kdar'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'Avg. Efficiency',
-                                value: stats['efficiency'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'Avg. Score',
-                                value: stats['score'].toFixed(2),
-                                inline: true,
-                            },
-                            {
-                                name: 'Avg. Duration',
-                                value: `${new Date(stats['duration'] * 1000).toISOString().substr(11, 8)}`,
-                                inline: true,
-                            },
-                        )
-
-                    // If embed was successfully constructed, send to channel.
-                    if(embed)
-                    {
-                        message.channel.send(embed)
-                    }
-                    // If not, return error.
-                    else
-                    {
-                        message.reply(`Failed to aggregate stats. Please try again later.`)
+                        stats['assists'] += activitiesArray[x].assists
+                        stats['deaths'] += activitiesArray[x].deaths
+                        stats['kills'] += activitiesArray[x].kills
+                        stats['efficiency'] += activitiesArray[x].efficiency
+                        stats['kdr'] += activitiesArray[x].kdr
+                        stats['kdar'] += activitiesArray[x].kdar
+                        stats['score'] += activitiesArray[x].score
+                        stats['duration'] += activitiesArray[x].activityDurationSeconds
                     }
                 }
-                finally
+
+                // Average out each stat value (divide by activity count specified)
+                for(stat in stats)
                 {
-                    mongoose.connection.close()
+                    stats[stat] /= actCount
                 }
-            })
+            }
+
+            // Use relevant data to build response
+            // Each activity has different stats, using a switch case we can present relevant stats in a Discord Embed object.
+            let embed = null
+            let activityName = getActivityType(activityMode)
+
+            // Construct Discord Embed message response based on parsed data.
+            embed = new Discord.MessageEmbed()
+                .setTitle(`Stat Averages - Last ${actCount} ${activityName} Activities`)
+                .setFooter(`Timestamp: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`)
+                .setColor('#00AAFF')
+                .addFields(
+                    {
+                        name: 'Avg. Kills',
+                        value: stats['kills'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'Avg. Deaths',
+                        value: stats['deaths'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'Avg. Assists',
+                        value: stats['assists'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'K/D Ratio',
+                        value: stats['kdr'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'K/D/A Ratio',
+                        value: stats['kdar'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'Avg. Efficiency',
+                        value: stats['efficiency'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'Avg. Score',
+                        value: stats['score'].toFixed(2),
+                        inline: true,
+                    },
+                    {
+                        name: 'Avg. Duration',
+                        value: `${new Date(stats['duration'] * 1000).toISOString().substr(11, 8)}`,
+                        inline: true,
+                    },
+                )
+
+            // If embed was successfully constructed, send to channel.
+            if(embed)
+            {
+                message.channel.send(embed)
+            }
+            // If not, return error.
+            else
+            {
+                message.reply(`Failed to aggregate stats. Please try again later.`)
+            }
         }
         // Guardian data (account IDs from Bungie.net) is not in cache or database. User needs to use the registerme command first.
         else
