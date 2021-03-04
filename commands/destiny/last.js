@@ -19,14 +19,14 @@ module.exports = {
     minArgs: 2,
     maxArgs: 2,
     callback: async (client, message, arguments, text) => {
-        const memberId = message.member.id
+        const memberId = '175371003986182144'
         let actCount = arguments[0]
         const activ = arguments[1].toLowerCase()
         let activityMode = ''
 
         if(actCount < 1 || actCount > 10)
         {
-            message.reply(`Activity count incorrect. Please specify an activity count between 1 and 10 (Ex. ${prefix}last 3 trials).`)
+            message.reply(`Activity count incorrect. Please specify an activity count between 1 and 30 (Ex. ${prefix}last 3 trials).`)
             return
         }
 
@@ -155,8 +155,10 @@ module.exports = {
             {
                 actCount = activitiesArray.length
             }
-            
-            // Insert fetched activity data to database collection
+
+            if(activitiesArray.length)
+            {
+                // Insert fetched activity data to database collection
             // await guardianActivitySchema.insertMany(activitiesArray)
             
             // Initialize stats object to first activity value of each stat.
@@ -261,6 +263,13 @@ module.exports = {
             {
                 message.reply(`Failed to aggregate stats. Please try again later.`)
             }
+        }
+        else
+        {
+            message.reply(`No activities found.`)
+        }
+            
+            
         }
         // Guardian data (account IDs from Bungie.net) is not in cache or database. User needs to use the registerme command first.
         else
